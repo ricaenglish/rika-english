@@ -173,23 +173,7 @@ textarea{resize:vertical;min-height:70px}
 .sent-input-grid input{font-size:12px;padding:.35rem .55rem}
 </style>
 
-<!-- Firebase SDK -->
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-<script>
-const firebaseConfig = {
-  apiKey: "AIzaSyB_N5oJNPdK2YCu1qD0d0a1X7hnYYtrcQU",
-  authDomain: "rika-english.firebaseapp.com",
-  projectId: "rika-english",
-  storageBucket: "rika-english.firebasestorage.app",
-  messagingSenderId: "758895345265",
-  appId: "1:758895345265:web:b8f17a413f01272d4ae5d0"
-};
-firebase.initializeApp(firebaseConfig);
-const auth = firebase.auth();
-window._db = firebase.firestore();
-</script>
+
 </head>
 <body>
 
@@ -366,7 +350,7 @@ window._db = firebase.firestore();
 
 <script>
 const DB_KEY='rika_db_v2';
-function db(){try{return JSON.parse(localStorage.getItem(DB_KEY))||initDB()}catch(e){return initDB()}}
+function ldb(){try{return JSON.parse(localStorage.getItem(DB_KEY))||initDB()}catch(e){return initDB()}}
 function saveDB(d){localStorage.setItem(DB_KEY,JSON.stringify(d))}
 
 function initDB(){
@@ -388,7 +372,7 @@ async function initAdminAccount(){
     const pw='admin1234';
     try{
       const cred=await auth.createUserWithEmailAndPassword(email,pw);
-      await window._db.collection('users').doc(cred.user.uid).set({
+      await window.fdb.collection('users').doc(cred.user.uid).set({
         id:'admin',name:'선생님',role:'admin',
         createdAt:firebase.firestore.FieldValue.serverTimestamp()
       });
@@ -420,8 +404,26 @@ async function doLogin(){
     const uid = userCred.user.uid;
 
     // Firestore에서 사용자 정보 가져오기
-    const userDoc = await db.collection('users').doc(uid).get();
+    console.log('로그인 UID:', uid);
+    const userDoc = await window.fdb.collection('users').doc(uid).get();
+    console.log('문서 존재:', userDoc.exists, '문서ID:', userDoc.id);
     if (!userDoc.exists) {
+      // UID로 못찾으면 id 필드로 검색 시도
+      const querySnap = await window.fdb.collection('users').where('id','==',id).get();
+      console.log('id 필드 검색 결과:', querySnap.size);
+      if(!querySnap.empty) {
+        const userData = querySnap.docs[0].data();
+        if(loginRole==='admin'&&userData.role!=='admin'){errEl.textContent='선생님 계정이 아니에요.';errEl.classList.remove('hidden');await auth.signOut();if(btn){btn.disabled=false;btn.textContent='로그인';}return;}
+        if(loginRole==='student'&&userData.role!=='student'){errEl.textContent='학생 계정이 아니에요.';errEl.classList.remove('hidden');await auth.signOut();if(btn){btn.disabled=false;btn.textContent='로그인';}return;}
+        curUser={...userData,uid};
+        document.getElementById('page-login').classList.add('hidden');
+        document.getElementById('page-app').classList.remove('hidden');
+        document.getElementById('header-user').textContent=userData.name+(userData.role==='admin'?' (관리자)':' 학생')+' 님, 환영해요!';
+        if(userData.role==='admin'){document.getElementById('student-nav').classList.add('hidden');document.getElementById('admin-nav').classList.remove('hidden');document.getElementById('study-guide-banner').classList.add('hidden');showTab('admin-students',document.querySelector('#admin-nav .nav-btn'));}
+        else{document.getElementById('student-nav').classList.remove('hidden');document.getElementById('admin-nav').classList.add('hidden');document.getElementById('study-guide-banner').classList.remove('hidden');updateTodayGoal();showTab('learn',document.querySelector('#student-nav .nav-btn'));}
+        if(btn){btn.disabled=false;btn.textContent='로그인';}
+        return;
+      }
       errEl.textContent='사용자 정보를 찾을 수 없어요.';errEl.classList.remove('hidden');
       if(btn){btn.disabled=false;btn.textContent='로그인';}
       return;
@@ -477,7 +479,7 @@ async function doLogout(){
 
 function updateTodayGoal(){
   if(!curUser||curUser.role!=='student')return;
-  const data=db();
+  const data=ldb();
   const unitRecs=data.progress.filter(p=>p.userId===curUser.id&&p.isUnitRecord&&p.completed);
   const totalUnits=data.books.reduce((acc,b)=>acc+b.units.filter(u=>u.sentences.length>0).length,0);
   const gt=document.getElementById('goal-text');
@@ -508,7 +510,7 @@ function showTab(name,btn){
 }
 
 function renderBooks(){
-  const data=db();
+  const data=ldb();
   const myProg=data.progress.filter(p=>p.userId===curUser.id&&p.isUnitRecord&&p.completed);
   let html=`<div class="section-title">교재 선택</div><div class="book-grid">`;
   data.books.forEach(b=>{
@@ -529,7 +531,7 @@ function renderBooks(){
 let curBook=null,curUnit=null;
 
 function selectBook(id){
-  const data=db();
+  const data=ldb();
   curBook=data.books.find(b=>b.id===id);
   document.getElementById('view-books').classList.add('hidden');
   const myProg=data.progress.filter(p=>p.userId===curUser.id&&p.isUnitRecord&&p.completed);
@@ -564,7 +566,7 @@ function goBooks(){
 let studyState={};
 
 function selectUnit(bookId,unitNum){
-  const data=db();
+  const data=ldb();
   curBook=data.books.find(b=>b.id===bookId);
   curUnit=curBook.units.find(u=>u.unit===unitNum);
   let pr=data.progress.find(p=>p.userId===curUser.id&&p.bookId===bookId&&p.unit===unitNum&&!p.isUnitRecord);
@@ -807,7 +809,7 @@ function saveProgress(score,grade){
   studyState.scores.push(score);
   if(curUser&&curUser.uid){
     const sent=curUnit.sentences[studyState.sentIdx];
-    window._db.collection('progress').add({
+    window.fdb.collection('progress').add({
       userId:curUser.uid,userName:curUser.name,
       bookId:curBook.id,bookName:curBook.name,
       unit:curUnit.unit,sentIdx:studyState.sentIdx,
@@ -829,14 +831,14 @@ function nextSent(score){
 function finishUnit(){
   const scores=studyState.scores;
   const avg=scores.length?Math.round(scores.reduce((a,b)=>a+b,0)/scores.length):0;
-  const data=db();
+  const data=ldb();
   const unitRec={userId:curUser.uid||curUser.id,userName:curUser.name,bookId:curBook.id,bookName:curBook.name,unit:curUnit.unit,completed:true,started:true,avgScore:avg,grade:scoreToGrade(avg),date:new Date().toLocaleDateString('ko-KR'),ts:Date.now(),isUnitRecord:true};
   const idx=data.progress.findIndex(p=>p.userId===(curUser.uid||curUser.id)&&p.bookId===curBook.id&&p.unit===curUnit.unit&&p.isUnitRecord);
   if(idx>=0)data.progress[idx]=unitRec;else data.progress.push(unitRec);
   saveDB(data);
   // Firestore에도 저장
   if(curUser&&curUser.uid){
-    window._db.collection('unitProgress').doc(curUser.uid+'_'+curBook.id+'_'+curUnit.unit).set({
+    window.fdb.collection('unitProgress').doc(curUser.uid+'_'+curBook.id+'_'+curUnit.unit).set({
       userId:curUser.uid,userName:curUser.name,
       bookId:curBook.id,bookName:curBook.name,
       unit:curUnit.unit,completed:true,
@@ -872,7 +874,7 @@ function startRec(){
       const blob=new Blob(chunks,{type:'audio/webm'});
       const reader=new FileReader();
       reader.onload=()=>{
-        const data=db();
+        const data=ldb();
         if(!data.recordings)data.recordings=[];
         data.recordings.push({id:Date.now(),userId:curUser.id,userName:curUser.name,bookId:curBook.id,bookName:curBook.name,unit:curUnit.unit,sentIdx:studyState.sentIdx,sentence:curUnit.sentences[studyState.sentIdx].en,audio:reader.result,date:new Date().toLocaleString('ko-KR')});
         saveDB(data);renderCurRecs();
@@ -890,14 +892,14 @@ function stopRec(){
 }
 function renderCurRecs(){
   const el=document.getElementById('cur-recs');if(!el)return;
-  const data=db();
+  const data=ldb();
   const recs=(data.recordings||[]).filter(r=>r.userId===curUser.id&&r.bookId===curBook.id&&r.unit===curUnit.unit&&r.sentIdx===studyState.sentIdx);
   if(!recs.length){el.innerHTML='<div style="font-size:12px;color:var(--text2);text-align:center;margin:.5rem 0">저장된 녹음 없음</div>';return}
   el.innerHTML='<div style="font-size:12px;color:var(--text2);margin:.5rem 0 4px">저장된 녹음:</div>'+recs.map(r=>`<div class="rec-item"><audio controls src="${r.audio}" style="flex:1;height:30px"></audio><span class="rec-time">${r.date}</span><button class="btn btn-danger btn-sm" onclick="delRec(${r.id})">🗑</button></div>`).join('');
 }
-function delRec(id){const data=db();data.recordings=(data.recordings||[]).filter(r=>r.id!==id);saveDB(data);renderCurRecs();renderAllRecs()}
+function delRec(id){const data=ldb();data.recordings=(data.recordings||[]).filter(r=>r.id!==id);saveDB(data);renderCurRecs();renderAllRecs()}
 function renderAllRecs(){
-  const data=db();const recs=(data.recordings||[]).filter(r=>r.userId===curUser.id);
+  const data=ldb();const recs=(data.recordings||[]).filter(r=>r.userId===curUser.id);
   const el=document.getElementById('all-recs');
   if(!recs.length){el.innerHTML='<div style="text-align:center;color:var(--text2);padding:2rem;font-size:14px">저장된 녹음이 없어요</div>';return}
   const g={};recs.forEach(r=>{const k=r.bookName+' Unit '+r.unit;if(!g[k])g[k]=[];g[k].push(r)});
@@ -905,7 +907,7 @@ function renderAllRecs(){
 }
 
 function renderProgress(){
-  const data=db();
+  const data=ldb();
   const unitRecs=data.progress.filter(p=>p.userId===curUser.id&&p.isUnitRecord&&p.completed);
   const scores=unitRecs.filter(p=>p.avgScore).map(p=>p.avgScore);
   const avg=scores.length?Math.round(scores.reduce((a,b)=>a+b,0)/scores.length):null;
@@ -923,7 +925,7 @@ function renderProgress(){
 }
 
 function renderStudentList(){
-  const data=db();const students=data.users.filter(u=>u.role==='student');
+  const data=ldb();const students=data.users.filter(u=>u.role==='student');
   const el=document.getElementById('student-list');
   if(!students.length){el.innerHTML='<div style="color:var(--text2);font-size:13px;text-align:center;padding:1rem">등록된 학생이 없어요</div>';return}
   el.innerHTML=`<table class="admin-table"><thead><tr><th>이름</th><th>아이디</th><th>비밀번호</th><th>완료 Units</th><th></th></tr></thead><tbody>${students.map(s=>{
@@ -942,12 +944,12 @@ async function addStudent(){
     const email=id+'@rika-english.com';
     const userCred=await auth.createUserWithEmailAndPassword(email,pw);
     const uid=userCred.user.uid;
-    await window._db.collection('users').doc(uid).set({
+    await window.fdb.collection('users').doc(uid).set({
       id,name:name||id,role:'student',
       createdAt:firebase.firestore.FieldValue.serverTimestamp()
     });
     // 로컬에도 저장
-    const data=db();
+    const data=ldb();
     data.users.push({id,pw,name:name||id,role:'student',uid});
     saveDB(data);
     document.getElementById('new-student-name').value='';
@@ -963,11 +965,11 @@ async function addStudent(){
 }
 function delStudent(id){
   if(!confirm('이 학생을 삭제할까요?'))return;
-  const data=db();data.users=data.users.filter(u=>u.id!==id);data.progress=data.progress.filter(p=>p.userId!==id);data.recordings=(data.recordings||[]).filter(r=>r.userId!==id);saveDB(data);renderStudentList();
+  const data=ldb();data.users=data.users.filter(u=>u.id!==id);data.progress=data.progress.filter(p=>p.userId!==id);data.recordings=(data.recordings||[]).filter(r=>r.userId!==id);saveDB(data);renderStudentList();
 }
 
 function populateAdminFilters(){
-  const data=db();
+  const data=ldb();
   document.getElementById('filter-book').innerHTML='<option value="">전체 Book</option>'+data.books.map(b=>`<option value="${b.id}">${b.name}</option>`).join('');
   document.getElementById('filter-student').innerHTML='<option value="">전체 학생</option>'+data.users.filter(u=>u.role==='student').map(u=>`<option value="${u.id}">${u.name} (${u.id})</option>`).join('');
 }
@@ -979,7 +981,7 @@ async function renderAdminProgress(){
 
   try {
     // Firestore에서 진도 불러오기
-    let query=window._db.collection('unitProgress').where('completed','==',true);
+    let query=window.fdb.collection('unitProgress').where('completed','==',true);
     if(sF)query=query.where('userId','==',sF);
     const snap=await query.orderBy('ts','desc').limit(200).get();
     let recs=snap.docs.map(d=>({...d.data(),id:d.id}));
@@ -994,14 +996,14 @@ async function renderAdminProgress(){
     }
 
     // 학생별 요약 (Firestore)
-    const data=db();
+    const data=ldb();
     const students=data.users.filter(u=>u.role==='student');
     const sumEl=document.getElementById('admin-summary');
 
     // 각 학생의 진도 집계
     const studentSnaps=await Promise.all(students.map(s=>{
       if(!s.uid)return Promise.resolve(null);
-      return window._db.collection('unitProgress').where('userId','==',s.uid).where('completed','==',true).get();
+      return window.fdb.collection('unitProgress').where('userId','==',s.uid).where('completed','==',true).get();
     }));
 
     sumEl.innerHTML=`<table class="admin-table"><thead><tr><th>학생</th><th>완료 Units</th><th>평균 점수</th><th>최근 학습</th><th>상태</th></tr></thead><tbody>${students.map((s,si)=>{
@@ -1030,7 +1032,7 @@ function showContentTab(name,btn){
   if(name==='add-sentences'){renderBookSelect();renderSentInputs()}
   if(name==='book-list')renderBookListAdmin();
 }
-function renderBookSelect(){const data=db();const sel=document.getElementById('sel-book');if(sel)sel.innerHTML=data.books.map(b=>`<option value="${b.id}">${b.name}</option>`).join('')}
+function renderBookSelect(){const data=ldb();const sel=document.getElementById('sel-book');if(sel)sel.innerHTML=data.books.map(b=>`<option value="${b.id}">${b.name}</option>`).join('')}
 function renderSentInputs(){
   const el=document.getElementById('sent-inputs');if(!el)return;
   let h=`<div class="sent-input-grid" style="margin-bottom:6px"><span style="font-size:12px;font-weight:700;color:var(--text2)">영어</span><span style="font-size:12px;font-weight:700;color:var(--text2)">한국어</span></div>`;
@@ -1044,23 +1046,44 @@ function saveSents(){
   const sents=[];
   for(let i=0;i<7;i++){const en=(document.getElementById('en-'+i).value||'').trim();const ko=(document.getElementById('ko-'+i).value||'').trim();if(en&&ko)sents.push({en,ko})}
   if(!sents.length){alert('문장을 입력해주세요');return}
-  const data=db();data.books.find(b=>b.id===bid).units.find(u=>u.unit===unum).sentences=sents;saveDB(data);
+  const data=ldb();data.books.find(b=>b.id===bid).units.find(u=>u.unit===unum).sentences=sents;saveDB(data);
   alert(`✓ ${sents.length}개 문장 저장됐어요!`);renderSentInputs();
 }
 function addBook(){
   const name=document.getElementById('nb-name').value.trim();if(!name){alert('책 이름을 입력해주세요');return}
-  const data=db();const units=[];for(let u=1;u<=20;u++)units.push({unit:u,sentences:[]});
+  const data=ldb();const units=[];for(let u=1;u<=20;u++)units.push({unit:u,sentences:[]});
   data.books.push({id:Date.now(),num:document.getElementById('nb-num').value?parseInt(document.getElementById('nb-num').value):data.books.length+1,name,desc:document.getElementById('nb-desc').value.trim()||'',units});
   saveDB(data);alert(`✓ "${name}" 추가됐어요!`);
   ['nb-name','nb-num','nb-desc'].forEach(id=>document.getElementById(id).value='');
 }
 function renderBookListAdmin(){
-  const data=db();const el=document.getElementById('book-list-admin');if(!el)return;
+  const data=ldb();const el=document.getElementById('book-list-admin');if(!el)return;
   el.innerHTML=data.books.map(b=>{const f=b.units.filter(u=>u.sentences.length>0).length;return`<div style="display:flex;align-items:center;gap:8px;padding:8px;background:#faf8ff;border-radius:8px;border:1px solid var(--border)"><div style="flex:1"><div style="font-size:13px;font-weight:700">${b.name}</div><div style="font-size:11px;color:var(--text2)">${f}/20 유닛 입력됨</div></div><button class="btn btn-danger btn-sm" onclick="delBook(${b.id})">삭제</button></div>`}).join('');
 }
-function delBook(id){if(!confirm('이 책을 삭제할까요?'))return;const data=db();data.books=data.books.filter(b=>b.id!==id);saveDB(data);renderBookListAdmin()}
+function delBook(id){if(!confirm('이 책을 삭제할까요?'))return;const data=ldb();data.books=data.books.filter(b=>b.id!==id);saveDB(data);renderBookListAdmin()}
 
 initDB();
+</script>
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyB_N5oJNPdK2YCu1qD0d0a1X7hnYYtrcQU",
+  authDomain: "rika-english.firebaseapp.com",
+  projectId: "rika-english",
+  storageBucket: "rika-english.firebasestorage.app",
+  messagingSenderId: "758895345265",
+  appId: "1:758895345265:web:b8f17a413f01272d4ae5d0"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+window.fdb = firebase.firestore();
+// Firebase 초기화 완료 후 앱 시작
+initDB();
+initAdminAccount();
+renderBooks();
 </script>
 </body>
 </html>
