@@ -69,7 +69,8 @@ textarea{resize:vertical;min-height:70px}
 .login-logo h2{font-size:18px;font-weight:700;color:var(--pr-d)}
 .login-logo p{font-size:12px;color:var(--text2);margin-top:4px}
 .login-tabs{display:flex;gap:6px;margin-bottom:1.25rem;background:#f0eeff;border-radius:8px;padding:4px}
-.login-tab{flex:1;padding:7px;border:none;background:transparent;border-radius:6px;font-size:13px;cursor:pointer;color:var(--text2);font-family:inherit;font-weight:500}
+.login-tab{flex:1;padding:7px;border:none;background:transparent;border-radius:6px;font-size:13px;cursor:pointer;color:var(--text2);font-family:inherit;font-weight:500;transition:.15s}
+.login-tab:hover{color:var(--pr)}
 .login-tab.active{background:#fff;color:var(--pr);font-weight:700;border:1px solid var(--border)}
 .login-error{background:#fcebeb;color:#a32d2d;border-radius:8px;padding:.6rem .75rem;font-size:13px;margin-bottom:.75rem}
 
@@ -171,9 +172,54 @@ textarea{resize:vertical;min-height:70px}
 .tab-btn.active{background:var(--pr-l);border-color:var(--pr);color:var(--pr-d);font-weight:700}
 .sent-input-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px}
 .sent-input-grid input{font-size:12px;padding:.35rem .55rem}
+
+/* ── 추가 스타일 v4 ── */
+.prog-wrap{margin:.5rem 0}
+.prog-label{display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;color:var(--text2)}
+.prog-label strong{color:var(--text)}
+.prog-bar-lg{height:10px;background:#e8e4f8;border-radius:6px;overflow:hidden}
+.prog-fill-lg{height:100%;border-radius:6px;transition:width .4s;background:linear-gradient(90deg,var(--pr),var(--ac))}
+.xp-badge{padding:4px 10px;border-radius:12px;font-size:11px;font-weight:700;background:var(--pr-l);color:var(--pr-d);border:1px solid var(--border)}
+.xp-badge.gold{background:#fef3dc;color:#a36200;border-color:#e8c870}
+.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--pr);color:#fff;padding:.6rem 1.2rem;border-radius:20px;font-size:13px;font-weight:700;z-index:9999;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap}
+.toast.show{opacity:1}
+.streak-bar{display:flex;align-items:center;gap:8px;padding:.5rem .75rem;background:linear-gradient(135deg,#fff7e6,#fff);border:1px solid #f0d080;border-radius:10px;margin-bottom:.75rem}
+.streak-fire{font-size:20px}
+.streak-text{font-size:12px;color:#a36200;font-weight:700}
+.wrong-chip{display:inline-block;padding:3px 8px;background:#fcebeb;border:1px solid #f5c6c6;border-radius:8px;font-size:11px;margin:2px}
+.rank-row{display:flex;align-items:center;gap:8px;padding:.5rem;border-bottom:1px solid var(--border);font-size:13px}
+.rank-num{width:24px;font-weight:800;color:var(--text2)}
+.rank-name{flex:1;font-weight:600}
+.rank-score{font-weight:700;color:var(--pr)}
 </style>
 
-
+<!-- Firebase 제거 - localStorage 전용 모드 -->
+<script>
+// Firebase 호환 더미 (오류 방지)
+const auth = {
+  signInWithEmailAndPassword: async (email, pw) => {
+    // 로컬 인증으로 처리
+    return { user: { uid: email.replace('@rika-english.com','') } };
+  },
+  createUserWithEmailAndPassword: async (email, pw) => {
+    return { user: { uid: email.replace('@rika-english.com','') } };
+  },
+  signOut: async () => {}
+};
+window._db = {
+  collection: () => ({
+    doc: () => ({
+      get: async () => ({ exists: false, data: () => ({}) }),
+      set: async () => {}
+    }),
+    add: async () => {},
+    where: () => ({ where: () => ({ get: async () => ({ docs: [] }) }), get: async () => ({ docs: [] }) })
+  })
+};
+const firebase = {
+  firestore: { FieldValue: { serverTimestamp: () => new Date().toISOString() } }
+};
+</script>
 </head>
 <body>
 
@@ -186,14 +232,28 @@ textarea{resize:vertical;min-height:70px}
       <p>자리영작 학습 프로그램</p>
     </div>
     <div class="login-tabs">
-      <button class="login-tab active" onclick="switchLoginTab('student',this)">학생 로그인</button>
-      <button class="login-tab" onclick="switchLoginTab('admin',this)">선생님 로그인</button>
+      <button class="login-tab active" onclick="switchLoginTab('student',this)" id="tab-student">🎓 학생</button>
+      <button class="login-tab" onclick="switchLoginTab('signup',this)" id="tab-signup">✏️ 회원가입</button>
+      <button class="login-tab" onclick="switchLoginTab('admin',this)" id="tab-admin" style="font-size:10px;opacity:.4">·</button>
     </div>
     <div id="login-error" class="login-error hidden"></div>
-    <div class="form-group"><label>아이디</label><input type="text" id="login-id" placeholder="아이디 입력" autocomplete="username"/></div>
-    <div class="form-group"><label>비밀번호</label><input type="password" id="login-pw" placeholder="비밀번호 입력" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"/></div>
-    <button class="btn btn-primary" style="width:100%;margin-top:.25rem" onclick="doLogin()">로그인</button>
-    <div style="text-align:center;margin-top:1rem;font-size:12px;color:var(--text2)">데모: 학생 student1 / 1234 &nbsp;|&nbsp; 선생님 admin / admin1234</div>
+
+    <!-- 학생 로그인 폼 -->
+    <div id="form-login">
+      <div class="form-group"><label>아이디</label><input type="text" id="login-id" placeholder="아이디 입력" autocomplete="username"/></div>
+      <div class="form-group"><label>비밀번호</label><input type="password" id="login-pw" placeholder="비밀번호 입력" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"/></div>
+      <button class="btn btn-primary" style="width:100%;margin-top:.25rem" onclick="doLogin()">로그인</button>
+      <p style="text-align:center;margin-top:.75rem;font-size:12px;color:var(--text2)">계정이 없나요? <button style="background:none;border:none;color:var(--pr);font-weight:700;cursor:pointer;font-size:12px" onclick="switchLoginTab('signup',document.getElementById('tab-signup'))">회원가입 →</button></p>
+    </div>
+
+    <!-- 회원가입 폼 -->
+    <div id="form-signup" class="hidden">
+      <div class="form-group"><label>이름</label><input type="text" id="signup-name" placeholder="홍길동"/></div>
+      <div class="form-group"><label>아이디 (영문+숫자)</label><input type="text" id="signup-id" placeholder="student4"/></div>
+      <div class="form-group"><label>비밀번호</label><input type="password" id="signup-pw" placeholder="비밀번호 (4자 이상)"/></div>
+      <button class="btn btn-success" style="width:100%;margin-top:.25rem" onclick="doSignup()">✅ 회원가입</button>
+      <p style="font-size:12px;color:var(--text2);margin-top:.75rem;text-align:center">가입 후 선생님 승인 없이 바로 학습 시작!</p>
+    </div>
   </div>
 </div>
 
@@ -204,10 +264,13 @@ textarea{resize:vertical;min-height:70px}
   <div class="header">
     <div class="logo">📚</div>
     <div style="flex:1">
-      <h1>리카영어 어순체화 자리영작 <span class="badge">AI채점</span></h1>
+      <h1>리카영어 어순체화 <span class="badge">스마트채점</span></h1>
       <p id="header-user">안녕하세요!</p>
     </div>
-    <button class="btn btn-sm" style="background:rgba(255,255,255,.2);color:#fff;border:none;flex-shrink:0" onclick="doLogout()">로그아웃</button>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
+      <button class="btn btn-sm" style="background:rgba(255,255,255,.2);color:#fff;border:none" onclick="doLogout()">로그아웃</button>
+      <div id="header-stats" style="font-size:10px;color:rgba(255,255,255,.75);display:none"></div>
+    </div>
   </div>
 
   <!-- STUDY GUIDE BANNER (학생만) -->
@@ -275,16 +338,37 @@ textarea{resize:vertical;min-height:70px}
   </div>
 
   <div id="tab-recordings" class="tab-content hidden">
-    <div class="card"><div class="section-title">내 녹음 파일</div><div id="all-recs"></div></div>
+    <div class="card">
+      <div class="section-title">🎙 내 녹음 파일</div>
+      <p style="font-size:12px;color:var(--text2);margin-bottom:.75rem">발음 연습 녹음이 여기에 저장돼요. 유닛 학습 중 녹음해보세요!</p>
+      <div id="all-recs"></div>
+    </div>
   </div>
 
   <div id="tab-progress" class="tab-content hidden">
+    <div id="streak-container"></div>
     <div class="stat-grid">
-      <div class="stat-card"><div class="stat-num" id="st-books">0</div><div class="stat-lbl">완료 Books</div></div>
-      <div class="stat-card"><div class="stat-num" id="st-units">0</div><div class="stat-lbl">완료 Units</div></div>
-      <div class="stat-card"><div class="stat-num" id="st-avg">-</div><div class="stat-lbl">평균 점수</div></div>
+      <div class="stat-card" style="background:linear-gradient(135deg,#f0eeff,#fff)">
+        <div style="font-size:24px;margin-bottom:2px">📚</div>
+        <div class="stat-num" id="st-books">0</div>
+        <div class="stat-lbl">완료 Books</div>
+      </div>
+      <div class="stat-card" style="background:linear-gradient(135deg,#e1f5ee,#fff)">
+        <div style="font-size:24px;margin-bottom:2px">✅</div>
+        <div class="stat-num" id="st-units" style="color:var(--ac)">0</div>
+        <div class="stat-lbl">완료 Units</div>
+      </div>
+      <div class="stat-card" style="background:linear-gradient(135deg,#fef3dc,#fff)">
+        <div style="font-size:24px;margin-bottom:2px">⭐</div>
+        <div class="stat-num" id="st-avg" style="color:var(--amber)">-</div>
+        <div class="stat-lbl">평균 점수</div>
+      </div>
     </div>
     <div class="card"><div class="section-title">Book별 진도</div><div id="prog-detail" style="margin-top:.5rem"></div></div>
+    <div class="card" style="margin-top:.5rem">
+      <div class="section-title">❌ 오답 복습</div>
+      <div id="wrong-review" style="margin-top:.5rem"><p style="color:var(--text2);font-size:13px">완료한 유닛의 오답이 여기에 표시돼요!</p></div>
+    </div>
   </div>
 
   <div id="tab-admin-students" class="tab-content hidden">
@@ -350,7 +434,7 @@ textarea{resize:vertical;min-height:70px}
 
 <script>
 const DB_KEY='rika_db_v2';
-function ldb(){try{return JSON.parse(localStorage.getItem(DB_KEY))||initDB()}catch(e){return initDB()}}
+function db(){try{return JSON.parse(localStorage.getItem(DB_KEY))||initDB()}catch(e){return initDB()}}
 function saveDB(d){localStorage.setItem(DB_KEY,JSON.stringify(d))}
 
 function initDB(){
@@ -365,111 +449,126 @@ function initDB(){
   saveDB(data);return data;
 }
 
-// 관리자 계정 Firebase 초기화 (최초 1회)
-async function initAdminAccount(){
-  try{
-    const email='admin@rika-english.com';
-    const pw='admin1234';
-    try{
-      const cred=await auth.createUserWithEmailAndPassword(email,pw);
-      await window.fdb.collection('users').doc(cred.user.uid).set({
-        id:'admin',name:'선생님',role:'admin',
-        createdAt:firebase.firestore.FieldValue.serverTimestamp()
-      });
-      console.log('관리자 계정 생성됨');
-    }catch(e){
-      if(e.code!=='auth/email-already-in-use')console.error(e);
-    }
-  }catch(e){console.error(e);}
-}
-
 let curUser=null,loginRole='student';
 
-function switchLoginTab(role,btn){loginRole=role;document.querySelectorAll('.login-tab').forEach(b=>b.classList.remove('active'));btn.classList.add('active')}
+function switchLoginTab(role,btn){
+  loginRole = role==='signup' ? 'student' : role;
+  document.querySelectorAll('.login-tab').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  const isSignup = role==='signup';
+  const isAdmin  = role==='admin';
+  document.getElementById('form-login').classList.toggle('hidden', isSignup);
+  document.getElementById('form-signup').classList.toggle('hidden', !isSignup);
+  document.getElementById('login-error').classList.add('hidden');
+  // 관리자 탭: 숨겨진 점(·)을 클릭했을 때만 활성화, 눈에 띄지 않게
+  const adminTab = document.getElementById('tab-admin');
+  if(adminTab){
+    if(isAdmin){ adminTab.style.opacity='1'; adminTab.textContent='🔑 관리자'; loginRole='admin'; }
+    else{ adminTab.style.opacity='.4'; adminTab.textContent='·'; }
+  }
+}
+
+async function doGuestLogin(){
+  const data=db();
+  const demo=data.users.find(u=>u.id==='student1');
+  if(!demo){
+    showToast('데모 계정이 없어요. 회원가입 탭에서 직접 만들어보세요!');return;
+  }
+  document.getElementById('login-id').value='student1';
+  document.getElementById('login-pw').value='1234';
+  loginRole='student';
+  doLogin();
+}
+
+async function doSignup(){
+  const name=document.getElementById('signup-name').value.trim();
+  const id=document.getElementById('signup-id').value.trim();
+  const pw=document.getElementById('signup-pw').value;
+  const errEl=document.getElementById('login-error');
+  errEl.classList.add('hidden');
+
+  if(!name||!id||!pw){errEl.textContent='모든 항목을 입력해주세요.';errEl.classList.remove('hidden');return;}
+  if(pw.length<4){errEl.textContent='비밀번호는 4자 이상이어야 해요.';errEl.classList.remove('hidden');return;}
+  if(!/^[a-zA-Z0-9_]+$/.test(id)){errEl.textContent='아이디는 영문·숫자·언더스코어만 가능해요.';errEl.classList.remove('hidden');return;}
+
+  const data=db();
+  if(data.users.find(u=>u.id===id)){
+    errEl.textContent='이미 사용 중인 아이디예요.';errEl.classList.remove('hidden');return;
+  }
+
+  const btn=document.querySelector('#form-signup .btn-success');
+  if(btn){btn.disabled=true;btn.textContent='가입 중...';}
+
+  data.users.push({id,pw,name,role:'student',uid:id});
+  saveDB(data);
+
+  // 가입 성공 → 자동 로그인
+  document.getElementById('login-id').value=id;
+  document.getElementById('login-pw').value=pw;
+  loginRole='student';
+  if(btn){btn.disabled=false;btn.textContent='✅ 회원가입';}
+  showToast('🎉 회원가입 완료! 환영해요, '+name+'님!');
+  await doLogin();
+}
 
 async function doLogin(){
   const id=document.getElementById('login-id').value.trim();
   const pw=document.getElementById('login-pw').value;
   const errEl=document.getElementById('login-error');
   errEl.classList.add('hidden');
-
-  // 버튼 비활성화
   const btn=document.querySelector('#page-login .btn-primary');
   if(btn){btn.disabled=true;btn.textContent='로그인 중...';}
 
-  try {
-    // Firebase Auth 로그인 (이메일 형식으로 변환)
-    const email = id + '@rika-english.com';
-    const userCred = await auth.signInWithEmailAndPassword(email, pw);
-    const uid = userCred.user.uid;
+  const data=db();
+  const user=data.users.find(u=>u.id===id&&u.pw===pw);
 
-    // Firestore에서 사용자 정보 가져오기
-    console.log('로그인 UID:', uid);
-    const userDoc = await window.fdb.collection('users').doc(uid).get();
-    console.log('문서 존재:', userDoc.exists, '문서ID:', userDoc.id);
-    if (!userDoc.exists) {
-      // UID로 못찾으면 id 필드로 검색 시도
-      const querySnap = await window.fdb.collection('users').where('id','==',id).get();
-      console.log('id 필드 검색 결과:', querySnap.size);
-      if(!querySnap.empty) {
-        const userData = querySnap.docs[0].data();
-        if(loginRole==='admin'&&userData.role!=='admin'){errEl.textContent='선생님 계정이 아니에요.';errEl.classList.remove('hidden');await auth.signOut();if(btn){btn.disabled=false;btn.textContent='로그인';}return;}
-        if(loginRole==='student'&&userData.role!=='student'){errEl.textContent='학생 계정이 아니에요.';errEl.classList.remove('hidden');await auth.signOut();if(btn){btn.disabled=false;btn.textContent='로그인';}return;}
-        curUser={...userData,uid};
-        document.getElementById('page-login').classList.add('hidden');
-        document.getElementById('page-app').classList.remove('hidden');
-        document.getElementById('header-user').textContent=userData.name+(userData.role==='admin'?' (관리자)':' 학생')+' 님, 환영해요!';
-        if(userData.role==='admin'){document.getElementById('student-nav').classList.add('hidden');document.getElementById('admin-nav').classList.remove('hidden');document.getElementById('study-guide-banner').classList.add('hidden');showTab('admin-students',document.querySelector('#admin-nav .nav-btn'));}
-        else{document.getElementById('student-nav').classList.remove('hidden');document.getElementById('admin-nav').classList.add('hidden');document.getElementById('study-guide-banner').classList.remove('hidden');updateTodayGoal();showTab('learn',document.querySelector('#student-nav .nav-btn'));}
-        if(btn){btn.disabled=false;btn.textContent='로그인';}
-        return;
-      }
-      errEl.textContent='사용자 정보를 찾을 수 없어요.';errEl.classList.remove('hidden');
-      if(btn){btn.disabled=false;btn.textContent='로그인';}
-      return;
-    }
-    const userData = userDoc.data();
-
-    if(loginRole==='admin'&&userData.role!=='admin'){
-      errEl.textContent='선생님 계정이 아니에요.';errEl.classList.remove('hidden');
-      await auth.signOut();
-      if(btn){btn.disabled=false;btn.textContent='로그인';}
-      return;
-    }
-    if(loginRole==='student'&&userData.role!=='student'){
-      errEl.textContent='학생 계정이 아니에요.';errEl.classList.remove('hidden');
-      await auth.signOut();
-      if(btn){btn.disabled=false;btn.textContent='로그인';}
-      return;
-    }
-
-    curUser = {...userData, uid};
-    document.getElementById('page-login').classList.add('hidden');
-    document.getElementById('page-app').classList.remove('hidden');
-    document.getElementById('header-user').textContent=userData.name+(userData.role==='admin'?' (관리자)':' 학생')+' 님, 환영해요!';
-
-    if(userData.role==='admin'){
-      document.getElementById('student-nav').classList.add('hidden');
-      document.getElementById('admin-nav').classList.remove('hidden');
-      document.getElementById('study-guide-banner').classList.add('hidden');
-      showTab('admin-students',document.querySelector('#admin-nav .nav-btn'));
-    } else {
-      document.getElementById('student-nav').classList.remove('hidden');
-      document.getElementById('admin-nav').classList.add('hidden');
-      document.getElementById('study-guide-banner').classList.remove('hidden');
-      updateTodayGoal();
-      showTab('learn',document.querySelector('#student-nav .nav-btn'));
-    }
-  } catch(e) {
-    console.error(e);
+  if(!user){
     errEl.textContent='아이디 또는 비밀번호가 틀렸어요.';
     errEl.classList.remove('hidden');
     if(btn){btn.disabled=false;btn.textContent='로그인';}
+    return;
   }
+  if(loginRole==='admin'&&user.role!=='admin'){
+    errEl.textContent='선생님 계정이 아니에요.';
+    errEl.classList.remove('hidden');
+    if(btn){btn.disabled=false;btn.textContent='로그인';}
+    return;
+  }
+  if(loginRole==='student'&&user.role!=='student'){
+    errEl.textContent='학생 계정이 아니에요.';
+    errEl.classList.remove('hidden');
+    if(btn){btn.disabled=false;btn.textContent='로그인';}
+    return;
+  }
+
+  curUser={...user, uid:user.id};
+  document.getElementById('page-login').classList.add('hidden');
+  document.getElementById('page-app').classList.remove('hidden');
+  document.getElementById('header-user').textContent=user.name+(user.role==='admin'?' (관리자)':' 학생')+' 님, 환영해요!';
+  if(user.role==='student'){
+    const statsEl=document.getElementById('header-stats');
+    if(statsEl){statsEl.style.display='block';}
+    setTimeout(()=>{
+      const statsEl=document.getElementById('header-stats');
+      if(statsEl){const xp=getXP();const str=getStreak();statsEl.textContent=(str?'🔥'+str+'일 · ':'')+xp+'XP';}
+    },300);
+  }
+  if(user.role==='admin'){
+    document.getElementById('student-nav').classList.add('hidden');
+    document.getElementById('admin-nav').classList.remove('hidden');
+    document.getElementById('study-guide-banner').classList.add('hidden');
+    showTab('admin-students',document.querySelector('#admin-nav .nav-btn'));
+  } else {
+    document.getElementById('student-nav').classList.remove('hidden');
+    document.getElementById('admin-nav').classList.add('hidden');
+    document.getElementById('study-guide-banner').classList.remove('hidden');
+    updateTodayGoal();
+    showTab('learn',document.querySelector('#student-nav .nav-btn'));
+  }
+  if(btn){btn.disabled=false;btn.textContent='로그인';}
 }
 
 async function doLogout(){
-  await auth.signOut();
   curUser=null;
   document.getElementById('page-app').classList.add('hidden');
   document.getElementById('page-login').classList.remove('hidden');
@@ -479,7 +578,7 @@ async function doLogout(){
 
 function updateTodayGoal(){
   if(!curUser||curUser.role!=='student')return;
-  const data=ldb();
+  const data=db();
   const unitRecs=data.progress.filter(p=>p.userId===curUser.id&&p.isUnitRecord&&p.completed);
   const totalUnits=data.books.reduce((acc,b)=>acc+b.units.filter(u=>u.sentences.length>0).length,0);
   const gt=document.getElementById('goal-text');
@@ -506,11 +605,16 @@ function showTab(name,btn){
   if(name==='progress')renderProgress();
   if(name==='admin-students')renderStudentList();
   if(name==='admin-progress'){populateAdminFilters();renderAdminProgress()}
+  if(name==='progress'){
+    const sc=document.getElementById('streak-container');
+    if(sc){sc.innerHTML='';renderStreakBadge(sc);}
+    renderWrongReview();
+  }
   if(name==='admin-content'){renderBookSelect();renderSentInputs();renderBookListAdmin()}
 }
 
 function renderBooks(){
-  const data=ldb();
+  const data=db();
   const myProg=data.progress.filter(p=>p.userId===curUser.id&&p.isUnitRecord&&p.completed);
   let html=`<div class="section-title">교재 선택</div><div class="book-grid">`;
   data.books.forEach(b=>{
@@ -531,7 +635,7 @@ function renderBooks(){
 let curBook=null,curUnit=null;
 
 function selectBook(id){
-  const data=ldb();
+  const data=db();
   curBook=data.books.find(b=>b.id===id);
   document.getElementById('view-books').classList.add('hidden');
   const myProg=data.progress.filter(p=>p.userId===curUser.id&&p.isUnitRecord&&p.completed);
@@ -566,7 +670,7 @@ function goBooks(){
 let studyState={};
 
 function selectUnit(bookId,unitNum){
-  const data=ldb();
+  const data=db();
   curBook=data.books.find(b=>b.id===bookId);
   curUnit=curBook.units.find(u=>u.unit===unitNum);
   let pr=data.progress.find(p=>p.userId===curUser.id&&p.bookId===bookId&&p.unit===unitNum&&!p.isUnitRecord);
@@ -681,11 +785,17 @@ function renderStudy(){
     `;
   }
 
+  const pct=Math.round((s.sentIdx/total)*100);
   document.getElementById('view-study').innerHTML=`
     <button class="back-btn" onclick="document.getElementById('view-units').classList.remove('hidden');document.getElementById('view-study').classList.add('hidden')">← 유닛 목록</button>
-    <div class="sent-nav">
-      <span class="sent-info">${curBook.name} · Unit ${curUnit.unit}</span>
-      <span class="sent-info">문장 ${s.sentIdx+1} / ${total}</span>
+    <div style="background:#fff;border-radius:10px;padding:.6rem 1rem;margin-bottom:.6rem;border:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:5px">
+        <span style="font-weight:700;color:var(--text)">${curBook.name} · Unit ${curUnit.unit}</span>
+        <span>문장 ${s.sentIdx+1} / ${total}</span>
+      </div>
+      <div style="height:6px;background:#e8e4f8;border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,var(--pr),var(--ac));border-radius:3px;transition:width .3s"></div>
+      </div>
     </div>
     <div class="step-bar">${stepBar}</div>
     <div class="card">${body}</div>
@@ -796,7 +906,7 @@ function checkCopy(){
   const msg=document.getElementById('copy-msg');
   if(input===sent.en){
     msg.innerHTML='<span style="color:#0f6e56;font-weight:700">✓ 잘 썼어요! 다음 문장으로 넘어가요!</span>';
-    saveProgress(50,'B');
+    saveProgress(50,'B',input);
     setTimeout(()=>nextSent(50),800);
   } else {
     const diffHTML=makeDiff(sent.en, input);
@@ -805,20 +915,22 @@ function checkCopy(){
   }
 }
 
-function saveProgress(score,grade){
+function saveProgress(score,grade,userInput){
   studyState.scores.push(score);
-  if(curUser&&curUser.uid){
-    const sent=curUnit.sentences[studyState.sentIdx];
-    window.fdb.collection('progress').add({
-      userId:curUser.uid,userName:curUser.name,
-      bookId:curBook.id,bookName:curBook.name,
-      unit:curUnit.unit,sentIdx:studyState.sentIdx,
-      sentence:sent.en,korean:sent.ko,
-      score,grade,
-      date:new Date().toLocaleDateString('ko-KR'),
-      ts:firebase.firestore.FieldValue.serverTimestamp()
-    }).catch(e=>console.error(e));
+  const sent=curUnit.sentences[studyState.sentIdx];
+  // 오답이면 로컬 corrections 기록에 추가
+  if(score<100 && userInput){
+    const data=db();
+    const uid=curUser.uid||curUser.id;
+    const key=uid+'_'+curBook.id+'_'+curUnit.unit;
+    const idx=data.progress.findIndex(p=>p.userId===uid&&p.bookId===curBook.id&&p.unit===curUnit.unit&&p.isUnitRecord);
+    if(idx>=0){
+      if(!data.progress[idx].corrections) data.progress[idx].corrections=[];
+      data.progress[idx].corrections.push({original:userInput,corrected:sent.en,ko:sent.ko});
+      saveDB(data);
+    }
   }
+  // Firestore 저장 비활성화 (로컬 전용)
 }
 
 function nextSent(score){
@@ -831,159 +943,20 @@ function nextSent(score){
 function finishUnit(){
   const scores=studyState.scores;
   const avg=scores.length?Math.round(scores.reduce((a,b)=>a+b,0)/scores.length):0;
-  const data=ldb();
-  const unitRec={userId:curUser.uid||curUser.id,userName:curUser.name,bookId:curBook.id,bookName:curBook.name,unit:curUnit.unit,completed:true,started:true,avgScore:avg,grade:scoreToGrade(avg),date:new Date().toLocaleDateString('ko-KR'),ts:Date.now(),isUnitRecord:true};
+  const data=db();
+  const unitRec={userId:curUser.uid||curUser.id,userName:curUser.name,bookId:curBook.id,bookName:curBook.name,unit:curUnit.unit,completed:true,started:true,avgScore:avg,grade:scoreToGrade(avg),date:new Date().toLocaleDateString('ko-KR'),ts:Date.now(),completedAt:new Date().toISOString(),isUnitRecord:true};
   const idx=data.progress.findIndex(p=>p.userId===(curUser.uid||curUser.id)&&p.bookId===curBook.id&&p.unit===curUnit.unit&&p.isUnitRecord);
-  if(idx>=0)data.progress[idx]=unitRec;else data.progress.push(unitRec);
+  if(idx>=0){
+    // corrections는 유지하면서 나머지만 업데이트
+    const existingCorrections=data.progress[idx].corrections||[];
+    data.progress[idx]={...unitRec,corrections:existingCorrections};
+  } else {
+    data.progress.push(unitRec);
+  }
   saveDB(data);
   // Firestore에도 저장
   if(curUser&&curUser.uid){
-    window.fdb.collection('unitProgress').doc(curUser.uid+'_'+curBook.id+'_'+curUnit.unit).set({
-      userId:curUser.uid,userName:curUser.name,
-      bookId:curBook.id,bookName:curBook.name,
-      unit:curUnit.unit,completed:true,
-      avgScore:avg,grade:scoreToGrade(avg),
-      date:new Date().toLocaleDateString('ko-KR'),
-      ts:firebase.firestore.FieldValue.serverTimestamp()
-    }).catch(e=>console.error(e));
-  }
-  updateTodayGoal();
-  document.getElementById('view-study').innerHTML=`
-    <div class="complete">
-      <div style="font-size:48px;margin-bottom:1rem">🎉</div>
-      <div style="font-size:20px;font-weight:700;margin-bottom:.5rem">${curBook.name} Unit ${curUnit.unit} 완료!</div>
-      <div class="score-ring"><div class="snum">${avg}</div><div class="slbl">평균 점수</div></div>
-      <div style="font-size:14px;color:var(--text2);margin:1rem 0">${avg>=90?'🌟 완벽해요! 정말 잘했어요!':avg>=75?'👍 잘했어요! 조금만 더!':'💪 계속 연습하면 잘할 수 있어요!'}</div>
-      <div class="btn-row">
-        <button class="btn btn-secondary" onclick="document.getElementById('view-units').classList.remove('hidden');document.getElementById('view-study').classList.add('hidden')">유닛 목록</button>
-        <button class="btn btn-primary" onclick="retryUnit()">🔄 다시 학습</button>
-      </div>
-    </div>`;
-}
-
-function scoreToGrade(s){return s>=90?'S':s>=75?'A':s>=60?'B':'C'}
-function retryUnit(){studyState={sentIdx:0,step:'read',readCount:0,scrCount:0,scrWords:[],scrPlaced:[],scores:[]};renderStudy()}
-
-let isRec=false,mr=null,chunks=[];
-function toggleRec(){isRec?stopRec():startRec()}
-function startRec(){
-  navigator.mediaDevices.getUserMedia({audio:true}).then(stream=>{
-    mr=new MediaRecorder(stream);chunks=[];
-    mr.ondataavailable=e=>chunks.push(e.data);
-    mr.onstop=()=>{
-      const blob=new Blob(chunks,{type:'audio/webm'});
-      const reader=new FileReader();
-      reader.onload=()=>{
-        const data=ldb();
-        if(!data.recordings)data.recordings=[];
-        data.recordings.push({id:Date.now(),userId:curUser.id,userName:curUser.name,bookId:curBook.id,bookName:curBook.name,unit:curUnit.unit,sentIdx:studyState.sentIdx,sentence:curUnit.sentences[studyState.sentIdx].en,audio:reader.result,date:new Date().toLocaleString('ko-KR')});
-        saveDB(data);renderCurRecs();
-      };reader.readAsDataURL(blob);stream.getTracks().forEach(t=>t.stop());
-    };
-    mr.start();isRec=true;
-    const b=document.getElementById('rec-btn');if(b){b.classList.add('recording');document.getElementById('rec-lbl').textContent='중지'}
-    const st=document.getElementById('rec-status');if(st)st.innerHTML='<span style="color:var(--danger)">● 녹음 중...</span>';
-  }).catch(()=>{const st=document.getElementById('rec-status');if(st)st.textContent='마이크 권한이 필요해요 (브라우저 설정에서 허용해주세요)'});
-}
-function stopRec(){
-  if(mr&&mr.state!=='inactive')mr.stop();isRec=false;
-  const b=document.getElementById('rec-btn');if(b){b.classList.remove('recording');document.getElementById('rec-lbl').textContent='녹음'}
-  const st=document.getElementById('rec-status');if(st)st.textContent='저장 완료 ✓';
-}
-function renderCurRecs(){
-  const el=document.getElementById('cur-recs');if(!el)return;
-  const data=ldb();
-  const recs=(data.recordings||[]).filter(r=>r.userId===curUser.id&&r.bookId===curBook.id&&r.unit===curUnit.unit&&r.sentIdx===studyState.sentIdx);
-  if(!recs.length){el.innerHTML='<div style="font-size:12px;color:var(--text2);text-align:center;margin:.5rem 0">저장된 녹음 없음</div>';return}
-  el.innerHTML='<div style="font-size:12px;color:var(--text2);margin:.5rem 0 4px">저장된 녹음:</div>'+recs.map(r=>`<div class="rec-item"><audio controls src="${r.audio}" style="flex:1;height:30px"></audio><span class="rec-time">${r.date}</span><button class="btn btn-danger btn-sm" onclick="delRec(${r.id})">🗑</button></div>`).join('');
-}
-function delRec(id){const data=ldb();data.recordings=(data.recordings||[]).filter(r=>r.id!==id);saveDB(data);renderCurRecs();renderAllRecs()}
-function renderAllRecs(){
-  const data=ldb();const recs=(data.recordings||[]).filter(r=>r.userId===curUser.id);
-  const el=document.getElementById('all-recs');
-  if(!recs.length){el.innerHTML='<div style="text-align:center;color:var(--text2);padding:2rem;font-size:14px">저장된 녹음이 없어요</div>';return}
-  const g={};recs.forEach(r=>{const k=r.bookName+' Unit '+r.unit;if(!g[k])g[k]=[];g[k].push(r)});
-  el.innerHTML=Object.entries(g).map(([grp,rs])=>`<div style="margin-bottom:1rem"><div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:6px">${grp}</div>${rs.map(r=>`<div class="rec-item" style="flex-wrap:wrap;gap:5px"><div style="width:100%;font-size:12px;font-weight:500">${r.sentence}</div><audio controls src="${r.audio}" style="flex:1;min-width:160px;height:30px"></audio><span class="rec-time">${r.date}</span><button class="btn btn-danger btn-sm" onclick="delRec(${r.id})">🗑</button></div>`).join('')}</div>`).join('');
-}
-
-function renderProgress(){
-  const data=ldb();
-  const unitRecs=data.progress.filter(p=>p.userId===curUser.id&&p.isUnitRecord&&p.completed);
-  const scores=unitRecs.filter(p=>p.avgScore).map(p=>p.avgScore);
-  const avg=scores.length?Math.round(scores.reduce((a,b)=>a+b,0)/scores.length):null;
-  const bDone=data.books.filter(b=>b.units.filter(u=>u.sentences.length>0).every(u=>unitRecs.find(p=>p.bookId===b.id&&p.unit===u.unit))).length;
-  document.getElementById('st-books').textContent=bDone;
-  document.getElementById('st-units').textContent=unitRecs.length;
-  document.getElementById('st-avg').textContent=avg!==null?avg+'점':'-';
-  document.getElementById('prog-detail').innerHTML=data.books.map(b=>{
-    const ws=b.units.filter(u=>u.sentences.length>0);
-    if(!ws.length)return`<div style="display:flex;align-items:center;gap:8px;padding:5px 0"><span style="font-size:13px;color:var(--text2);min-width:70px">${b.name}</span><span style="font-size:11px;color:var(--text2)">문장 미입력</span></div>`;
-    const done=ws.filter(u=>unitRecs.find(p=>p.bookId===b.id&&p.unit===u.unit)).length;
-    const pct=Math.round(done/ws.length*100);
-    return`<div style="display:flex;align-items:center;gap:8px;padding:5px 0"><span style="font-size:13px;min-width:68px">${b.name}</span><div style="flex:1;height:5px;background:#e8e4f8;border-radius:3px;overflow:hidden"><div style="height:100%;width:${pct}%;background:var(--pr);border-radius:3px"></div></div><span style="font-size:11px;color:var(--text2);min-width:44px;text-align:right">${done}/${ws.length}</span></div>`;
-  }).join('');
-}
-
-function renderStudentList(){
-  const data=ldb();const students=data.users.filter(u=>u.role==='student');
-  const el=document.getElementById('student-list');
-  if(!students.length){el.innerHTML='<div style="color:var(--text2);font-size:13px;text-align:center;padding:1rem">등록된 학생이 없어요</div>';return}
-  el.innerHTML=`<table class="admin-table"><thead><tr><th>이름</th><th>아이디</th><th>비밀번호</th><th>완료 Units</th><th></th></tr></thead><tbody>${students.map(s=>{
-    const done=data.progress.filter(p=>p.userId===s.id&&p.isUnitRecord&&p.completed).length;
-    return`<tr><td style="font-weight:700">${s.name||'-'}</td><td style="font-family:monospace">${s.id}</td><td style="font-family:monospace;color:var(--text2)">${s.pw}</td><td>${done}개</td><td><button class="btn btn-danger btn-sm" onclick="delStudent('${s.id}')">삭제</button></td></tr>`;
-  }).join('')}</tbody></table>`;
-}
-async function addStudent(){
-  const name=document.getElementById('new-student-name').value.trim();
-  const id=document.getElementById('new-student-id').value.trim();
-  const pw=document.getElementById('new-student-pw').value.trim();
-  if(!id||!pw){alert('아이디와 비밀번호를 입력해주세요');return}
-  const btn=document.querySelector('[onclick="addStudent()"]');
-  if(btn){btn.disabled=true;btn.textContent='추가 중...';}
-  try {
-    const email=id+'@rika-english.com';
-    const userCred=await auth.createUserWithEmailAndPassword(email,pw);
-    const uid=userCred.user.uid;
-    await window.fdb.collection('users').doc(uid).set({
-      id,name:name||id,role:'student',
-      createdAt:firebase.firestore.FieldValue.serverTimestamp()
-    });
-    // 로컬에도 저장
-    const data=ldb();
-    data.users.push({id,pw,name:name||id,role:'student',uid});
-    saveDB(data);
-    document.getElementById('new-student-name').value='';
-    document.getElementById('new-student-id').value='';
-    document.getElementById('new-student-pw').value='';
-    alert('✓ '+(name||id)+' 학생 추가됐어요!');
-    renderStudentList();
-  } catch(e) {
-    alert('오류: '+e.message);
-  } finally {
-    if(btn){btn.disabled=false;btn.textContent='추가';}
-  }
-}
-function delStudent(id){
-  if(!confirm('이 학생을 삭제할까요?'))return;
-  const data=ldb();data.users=data.users.filter(u=>u.id!==id);data.progress=data.progress.filter(p=>p.userId!==id);data.recordings=(data.recordings||[]).filter(r=>r.userId!==id);saveDB(data);renderStudentList();
-}
-
-function populateAdminFilters(){
-  const data=ldb();
-  document.getElementById('filter-book').innerHTML='<option value="">전체 Book</option>'+data.books.map(b=>`<option value="${b.id}">${b.name}</option>`).join('');
-  document.getElementById('filter-student').innerHTML='<option value="">전체 학생</option>'+data.users.filter(u=>u.role==='student').map(u=>`<option value="${u.id}">${u.name} (${u.id})</option>`).join('');
-}
-async function renderAdminProgress(){
-  const bF=document.getElementById('filter-book').value;
-  const sF=document.getElementById('filter-student').value;
-  const tbody=document.getElementById('admin-progress-body');
-  tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:1.5rem;color:var(--text2)">불러오는 중...</td></tr>';
-
-  try {
-    // Firestore에서 진도 불러오기
-    let query=window.fdb.collection('unitProgress').where('completed','==',true);
-    if(sF)query=query.where('userId','==',sF);
-    const snap=await query.orderBy('ts','desc').limit(200).get();
+    Promise.resolve({docs:[]});
     let recs=snap.docs.map(d=>({...d.data(),id:d.id}));
     if(bF)recs=recs.filter(p=>String(p.bookId)===bF);
 
@@ -996,14 +969,14 @@ async function renderAdminProgress(){
     }
 
     // 학생별 요약 (Firestore)
-    const data=ldb();
+    const data=db();
     const students=data.users.filter(u=>u.role==='student');
     const sumEl=document.getElementById('admin-summary');
 
     // 각 학생의 진도 집계
     const studentSnaps=await Promise.all(students.map(s=>{
       if(!s.uid)return Promise.resolve(null);
-      return window.fdb.collection('unitProgress').where('userId','==',s.uid).where('completed','==',true).get();
+      return Promise.resolve({docs:[]});
     }));
 
     sumEl.innerHTML=`<table class="admin-table"><thead><tr><th>학생</th><th>완료 Units</th><th>평균 점수</th><th>최근 학습</th><th>상태</th></tr></thead><tbody>${students.map((s,si)=>{
@@ -1032,7 +1005,7 @@ function showContentTab(name,btn){
   if(name==='add-sentences'){renderBookSelect();renderSentInputs()}
   if(name==='book-list')renderBookListAdmin();
 }
-function renderBookSelect(){const data=ldb();const sel=document.getElementById('sel-book');if(sel)sel.innerHTML=data.books.map(b=>`<option value="${b.id}">${b.name}</option>`).join('')}
+function renderBookSelect(){const data=db();const sel=document.getElementById('sel-book');if(sel)sel.innerHTML=data.books.map(b=>`<option value="${b.id}">${b.name}</option>`).join('')}
 function renderSentInputs(){
   const el=document.getElementById('sent-inputs');if(!el)return;
   let h=`<div class="sent-input-grid" style="margin-bottom:6px"><span style="font-size:12px;font-weight:700;color:var(--text2)">영어</span><span style="font-size:12px;font-weight:700;color:var(--text2)">한국어</span></div>`;
@@ -1046,44 +1019,108 @@ function saveSents(){
   const sents=[];
   for(let i=0;i<7;i++){const en=(document.getElementById('en-'+i).value||'').trim();const ko=(document.getElementById('ko-'+i).value||'').trim();if(en&&ko)sents.push({en,ko})}
   if(!sents.length){alert('문장을 입력해주세요');return}
-  const data=ldb();data.books.find(b=>b.id===bid).units.find(u=>u.unit===unum).sentences=sents;saveDB(data);
+  const data=db();data.books.find(b=>b.id===bid).units.find(u=>u.unit===unum).sentences=sents;saveDB(data);
   alert(`✓ ${sents.length}개 문장 저장됐어요!`);renderSentInputs();
 }
 function addBook(){
   const name=document.getElementById('nb-name').value.trim();if(!name){alert('책 이름을 입력해주세요');return}
-  const data=ldb();const units=[];for(let u=1;u<=20;u++)units.push({unit:u,sentences:[]});
+  const data=db();const units=[];for(let u=1;u<=20;u++)units.push({unit:u,sentences:[]});
   data.books.push({id:Date.now(),num:document.getElementById('nb-num').value?parseInt(document.getElementById('nb-num').value):data.books.length+1,name,desc:document.getElementById('nb-desc').value.trim()||'',units});
   saveDB(data);alert(`✓ "${name}" 추가됐어요!`);
   ['nb-name','nb-num','nb-desc'].forEach(id=>document.getElementById(id).value='');
 }
 function renderBookListAdmin(){
-  const data=ldb();const el=document.getElementById('book-list-admin');if(!el)return;
+  const data=db();const el=document.getElementById('book-list-admin');if(!el)return;
   el.innerHTML=data.books.map(b=>{const f=b.units.filter(u=>u.sentences.length>0).length;return`<div style="display:flex;align-items:center;gap:8px;padding:8px;background:#faf8ff;border-radius:8px;border:1px solid var(--border)"><div style="flex:1"><div style="font-size:13px;font-weight:700">${b.name}</div><div style="font-size:11px;color:var(--text2)">${f}/20 유닛 입력됨</div></div><button class="btn btn-danger btn-sm" onclick="delBook(${b.id})">삭제</button></div>`}).join('');
 }
-function delBook(id){if(!confirm('이 책을 삭제할까요?'))return;const data=ldb();data.books=data.books.filter(b=>b.id!==id);saveDB(data);renderBookListAdmin()}
+function delStudent(id){
+  if(!confirm('이 학생을 삭제할까요?'))return;
+  const data=db();
+  data.users=data.users.filter(u=>u.id!==id);
+  data.progress=data.progress.filter(p=>p.userId!==id);
+  data.recordings=(data.recordings||[]).filter(r=>r.userId!==id);
+  saveDB(data);renderStudentList();
+}
+
+async function addStudent(){
+  const name=document.getElementById('new-student-name').value.trim();
+  const id=document.getElementById('new-student-id').value.trim();
+  const pw=document.getElementById('new-student-pw').value.trim();
+  if(!id||!pw){alert('아이디와 비밀번호를 입력해주세요');return}
+  const data=db();
+  if(data.users.find(u=>u.id===id)){alert('이미 있는 아이디예요');return}
+  data.users.push({id,pw,name:name||id,role:'student',uid:id});
+  saveDB(data);
+  document.getElementById('new-student-name').value='';
+  document.getElementById('new-student-id').value='';
+  document.getElementById('new-student-pw').value='';
+  showToast('✓ '+(name||id)+' 학생 추가됐어요!');
+  renderStudentList();
+}
+
+function delBook(id){if(!confirm('이 책을 삭제할까요?'))return;const data=db();data.books=data.books.filter(b=>b.id!==id);saveDB(data);renderBookListAdmin()}
 
 initDB();
-</script>
-<!-- Firebase SDK -->
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-<script>
-const firebaseConfig = {
-  apiKey: "AIzaSyB_N5oJNPdK2YCu1qD0d0a1X7hnYYtrcQU",
-  authDomain: "rika-english.firebaseapp.com",
-  projectId: "rika-english",
-  storageBucket: "rika-english.firebasestorage.app",
-  messagingSenderId: "758895345265",
-  appId: "1:758895345265:web:b8f17a413f01272d4ae5d0"
-};
-firebase.initializeApp(firebaseConfig);
-const auth = firebase.auth();
-window.fdb = firebase.firestore();
-// Firebase 초기화 완료 후 앱 시작
-initDB();
-initAdminAccount();
-renderBooks();
+
+// ── v4 유틸리티 ──
+function showToast(msg, duration=2500){
+  let t=document.getElementById('_toast');
+  if(!t){t=document.createElement('div');t.id='_toast';t.className='toast';document.body.appendChild(t);}
+  t.textContent=msg;t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer=setTimeout(()=>t.classList.remove('show'),duration);
+}
+
+function getXP(){
+  const data=db();
+  const prog=data.progress||[];
+  return prog.filter(p=>p.userId===curUser?.id&&p.isUnitRecord&&p.completed).reduce((s,p)=>s+(p.avgScore||0),0);
+}
+
+function getStreak(){
+  const data=db();
+  const prog=(data.progress||[]).filter(p=>p.userId===curUser?.id&&p.completedAt);
+  if(!prog.length)return 0;
+  prog.sort((a,b)=>new Date(b.completedAt)-new Date(a.completedAt));
+  let streak=1,prev=new Date(prog[0].completedAt);
+  for(let i=1;i<prog.length;i++){
+    const cur=new Date(prog[i].completedAt);
+    const diff=(prev-cur)/(1000*60*60*24);
+    if(diff<=1.5){streak++;prev=cur;}else break;
+  }
+  return streak;
+}
+
+function getWrongSentences(){
+  const data=db();
+  const prog=(data.progress||[]).filter(p=>p.userId===curUser?.id&&p.corrections&&p.corrections.length>0);
+  return prog.flatMap(p=>(p.corrections||[]).map(c=>({...c,unit:p.unit,book:p.bookId||p.bookName||p.bookNum})));
+}
+
+function renderStreakBadge(container){
+  const streak=getStreak();
+  const xp=getXP();
+  if(!streak&&!xp)return;
+  const div=document.createElement('div');
+  div.className='streak-bar';
+  div.innerHTML=`<span class="streak-fire">🔥</span><span class="streak-text">${streak}일 연속 학습</span><span style="flex:1"></span><span class="xp-badge ${xp>=500?'gold':''}">${xp}점 누적</span>`;
+  container.prepend(div);
+}
+
+function renderWrongReview(){
+  const el=document.getElementById('wrong-review');
+  if(!el)return;
+  const wrongs=getWrongSentences();
+  if(!wrongs.length){el.innerHTML='<p style="color:var(--text2);font-size:13px">오답이 없어요! 완벽해요 🎉</p>';return;}
+  el.innerHTML=wrongs.slice(0,10).map(w=>`
+    <div style="background:#fcebeb;border:1px solid #f5c6c6;border-radius:10px;padding:.7rem;margin-bottom:.5rem">
+      <div style="font-size:13px;font-weight:700;color:#a32d2d">${w.original||''}</div>
+      <div style="font-size:12px;color:#0f6e56;margin-top:3px">✓ ${w.corrected||''}</div>
+      ${w.tip?`<div style="font-size:11px;color:var(--text2);margin-top:2px">💡 ${w.tip}</div>`:''}
+      <div style="font-size:10px;color:#bbb;margin-top:4px">Book ${w.book||''} Unit ${w.unit||''}</div>
+    </div>`).join('');
+}
+
 </script>
 </body>
 </html>
