@@ -536,6 +536,71 @@ async function ensureFirebaseReady(timeoutMs){
   return true;
 }
 
+// ── 교재/진도 Firestore 동기화 (기기 간 공유) ──
+async function syncBooksFromCloud(){
+  try{
+    const snap = await window._db.collection('books').get();
+    if(snap.empty){
+      // 클라우드에 교재가 없으면(최초 1회) 로컬 교재를 클라우드로 올려줍니다
+      const data=db();
+      for(const b of data.books){ await window._db.collection('books').doc(String(b.id)).set(b); }
+      return data.books;
+    }
+    const books = snap.docs.map(d=>d.data()).sort((a,b)=>(a.num||0)-(b.num||0));
+    const data=db(); data.books=books; saveDB(data);
+    return books;
+  }catch(e){ console.error('교재 동기화 실패, 로컬 데이터로 진행:', e); return db().books; }
+}
+async function syncMyProgressFromCloud(userId){
+  try{
+    const snap = await window._db.collection('progress').where('userId','==',userId).get();
+    const records = snap.docs.map(d=>d.data());
+    const data=db(); data.progress = data.progress.filter(p=>p.userId!==userId).concat(records); saveDB(data);
+    return records;
+  }catch(e){ console.error('진도 동기화 실패, 로컬 데이터로 진행:', e); return db().progress.filter(p=>p.userId===userId); }
+}
+async function syncAllProgressFromCloud(){
+  try{
+    const snap = await window._db.collection('progress').get();
+    const records = snap.docs.map(d=>d.data());
+    const data=db(); data.progress = records; saveDB(data);
+    return records;
+  }catch(e){ console.error('전체 진도 동기화 실패, 로컬 데이터로 진행:', e); return db().progress; }
+}
+function progressDocId(userId,bookId,unit,isUnitRecord){
+  return `${userId}_${bookId}_${unit}_${isUnitRecord?'record':'started'}`;
+}
+async function pushProgressToCloud(rec){
+  if(!window._firebaseReady) return;
+  try{ await window._db.collection('progress').doc(progressDocId(rec.userId,rec.bookId,rec.unit,rec.isUnitRecord)).set(rec); }
+  catch(e){ console.error('진도 클라우드 저장 실패(로컬에는 저장됨):', e); }
+}
+async function pushBookToCloud(book){
+  if(!window._firebaseReady) return;
+  try{ await window._db.collection('books').doc(String(book.id)).set(book); }
+  catch(e){ console.error('교재 클라우드 저장 실패(로컬에는 저장됨):', e); }
+}
+async function deleteBookFromCloud(bookId){
+  if(!window._firebaseReady) return;
+  try{ await window._db.collection('books').doc(String(bookId)).delete(); }
+  catch(e){ console.error('교재 클라우드 삭제 실패:', e); }
+}
+
+async function syncAllUsersFromCloud(){
+  try{
+    const snap = await window._db.collection('users').where('role','==','student').get();
+    const cloudUsers = snap.docs.map(d=>d.data());
+    const data=db();
+    // 로컬에만 있던 pw 필드는 보존하면서 클라우드 목록으로 학생 계정을 합칩니다
+    const byId={};
+    data.users.filter(u=>u.role==='student').forEach(u=>{byId[u.id]=u});
+    cloudUsers.forEach(u=>{byId[u.id]={...byId[u.id],...u}});
+    data.users = data.users.filter(u=>u.role!=='student').concat(Object.values(byId));
+    saveDB(data);
+    return data.users;
+  }catch(e){ console.error('학생 목록 동기화 실패, 로컬 데이터로 진행:', e); return db().users; }
+}
+
 async function doSignup(){
   const name=document.getElementById('signup-name').value.trim();
   const id=document.getElementById('signup-id').value.trim();
@@ -638,6 +703,13 @@ async function doLogin(){
     curUser={...user, uid, id};
     document.getElementById('page-login').classList.add('hidden');
     document.getElementById('page-app').classList.remove('hidden');
+    document.getElementById('header-user').textContent='동기화 중...';
+
+    // 다른 기기에서 저장된 교재/진도를 불러옵니다
+    await syncBooksFromCloud();
+    if(user.role==='admin'){ await syncAllProgressFromCloud(); await syncAllUsersFromCloud(); }
+    else { await syncMyProgressFromCloud(uid); }
+
     document.getElementById('header-user').textContent=user.name+(user.role==='admin'?' (관리자)':' 학생')+' 님, 환영해요!';
     if(user.role==='student'){
       const statsEl=document.getElementById('header-stats');
@@ -706,7 +778,7 @@ function goHome(){
 function updateTodayGoal(){
   if(!curUser||curUser.role!=='student')return;
   const data=db();
-  const unitRecs=data.progress.filter(p=>p.userId===curUser.id&&p.isUnitRecord&&p.completed);
+  const unitRecs=data.progress.filter(p=>p.userId===(curUser.uid||curUser.id)&&p.isUnitRecord&&p.completed);
   const totalUnits=data.books.reduce((acc,b)=>acc+b.units.filter(u=>u.sentences.length>0).length,0);
   const gt=document.getElementById('goal-text');
   const gs=document.getElementById('goal-sub');
@@ -742,7 +814,7 @@ function showTab(name,btn){
 
 function renderBooks(){
   const data=db();
-  const myProg=data.progress.filter(p=>p.userId===curUser.id&&p.isUnitRecord&&p.completed);
+  const myProg=data.progress.filter(p=>p.userId===(curUser.uid||curUser.id)&&p.isUnitRecord&&p.completed);
   let html=`<div class="nav-row"><div class="section-title" style="margin:0">교재 선택</div><button class="home-btn" onclick="goHome()">🏠 처음 화면</button></div><div class="book-grid">`;
   data.books.forEach(b=>{
     const ws=b.units.filter(u=>u.sentences.length>0);
@@ -765,7 +837,7 @@ function selectBook(id){
   const data=db();
   curBook=data.books.find(b=>b.id===id);
   document.getElementById('view-books').classList.add('hidden');
-  const myProg=data.progress.filter(p=>p.userId===curUser.id&&p.isUnitRecord&&p.completed);
+  const myProg=data.progress.filter(p=>p.userId===(curUser.uid||curUser.id)&&p.isUnitRecord&&p.completed);
   let html=`<div class="nav-row">
     <button class="back-btn" onclick="goBooks()">← 교재 목록</button>
     <button class="home-btn" onclick="goHome()">🏠 처음 화면</button>
@@ -774,7 +846,7 @@ function selectBook(id){
   curBook.units.forEach(u=>{
     const p=myProg.find(x=>x.bookId===id&&x.unit===u.unit);
     const has=u.sentences.length>0;
-    const started=data.progress.find(x=>x.userId===curUser.id&&x.bookId===id&&x.unit===u.unit&&x.started&&!x.isUnitRecord);
+    const started=data.progress.find(x=>x.userId===(curUser.uid||curUser.id)&&x.bookId===id&&x.unit===u.unit&&x.started&&!x.isUnitRecord);
     const cls=p?'done':started?'started':'';
     const lbl=p?' ✓':started?' …':'';
     html+=`<button class="unit-btn ${cls}" onclick="${has?'selectUnit('+id+','+u.unit+')':'alert(\'문장이 아직 없어요\')'}" ${has?'':'style="opacity:.4"'}>Unit ${u.unit}${lbl}</button>`;
@@ -803,9 +875,10 @@ function selectUnit(bookId,unitNum){
   const data=db();
   curBook=data.books.find(b=>b.id===bookId);
   curUnit=curBook.units.find(u=>u.unit===unitNum);
-  let pr=data.progress.find(p=>p.userId===curUser.id&&p.bookId===bookId&&p.unit===unitNum&&!p.isUnitRecord);
-  if(!pr){pr={userId:curUser.id,bookId,unit:unitNum,started:true};data.progress.push(pr)}
+  let pr=data.progress.find(p=>p.userId===(curUser.uid||curUser.id)&&p.bookId===bookId&&p.unit===unitNum&&!p.isUnitRecord);
+  if(!pr){pr={userId:(curUser.uid||curUser.id),bookId,unit:unitNum,started:true};data.progress.push(pr)}
   pr.started=true;saveDB(data);
+  pushProgressToCloud(pr);
   studyState={sentIdx:0,step:'read',readCount:0,scrCount:0,scrWords:[],scrPlaced:[],scores:[]};
   // update goal
   const gt=document.getElementById('goal-text');
@@ -1055,15 +1128,14 @@ function saveProgress(score,grade,userInput){
   if(score<100 && userInput){
     const data=db();
     const uid=curUser.uid||curUser.id;
-    const key=uid+'_'+curBook.id+'_'+curUnit.unit;
     const idx=data.progress.findIndex(p=>p.userId===uid&&p.bookId===curBook.id&&p.unit===curUnit.unit&&p.isUnitRecord);
     if(idx>=0){
       if(!data.progress[idx].corrections) data.progress[idx].corrections=[];
       data.progress[idx].corrections.push({original:userInput,corrected:sent.en,ko:sent.ko});
       saveDB(data);
+      pushProgressToCloud(data.progress[idx]);
     }
   }
-  // Firestore 저장 비활성화 (로컬 전용)
 }
 
 function nextSent(score){
@@ -1087,7 +1159,8 @@ function finishUnit(){
     data.progress.push(unitRec);
   }
   saveDB(data);
-  // Firestore 저장 비활성화 (로컬 전용)
+  const savedRec=data.progress.find(p=>p.userId===(curUser.uid||curUser.id)&&p.bookId===curBook.id&&p.unit===curUnit.unit&&p.isUnitRecord);
+  pushProgressToCloud(savedRec);
 }
 
 function showContentTab(name,btn){
@@ -1111,27 +1184,58 @@ function saveSents(){
   const sents=[];
   for(let i=0;i<7;i++){const en=(document.getElementById('en-'+i).value||'').trim();const ko=(document.getElementById('ko-'+i).value||'').trim();if(en&&ko)sents.push({en,ko})}
   if(!sents.length){alert('문장을 입력해주세요');return}
-  const data=db();data.books.find(b=>b.id===bid).units.find(u=>u.unit===unum).sentences=sents;saveDB(data);
-  alert(`✓ ${sents.length}개 문장 저장됐어요!`);renderSentInputs();
+  const data=db();const book=data.books.find(b=>b.id===bid);book.units.find(u=>u.unit===unum).sentences=sents;saveDB(data);
+  pushBookToCloud(book);
+  alert(`✓ ${sents.length}개 문장 저장됐어요! (다른 기기에도 반영돼요)`);renderSentInputs();
 }
 function addBook(){
   const name=document.getElementById('nb-name').value.trim();if(!name){alert('책 이름을 입력해주세요');return}
   const data=db();const units=[];for(let u=1;u<=20;u++)units.push({unit:u,sentences:[]});
-  data.books.push({id:Date.now(),num:document.getElementById('nb-num').value?parseInt(document.getElementById('nb-num').value):data.books.length+1,name,desc:document.getElementById('nb-desc').value.trim()||'',units});
-  saveDB(data);alert(`✓ "${name}" 추가됐어요!`);
+  const book={id:Date.now(),num:document.getElementById('nb-num').value?parseInt(document.getElementById('nb-num').value):data.books.length+1,name,desc:document.getElementById('nb-desc').value.trim()||'',units};
+  data.books.push(book);
+  saveDB(data);
+  pushBookToCloud(book);
+  alert(`✓ "${name}" 추가됐어요! (다른 기기에도 반영돼요)`);
   ['nb-name','nb-num','nb-desc'].forEach(id=>document.getElementById(id).value='');
 }
 function renderBookListAdmin(){
   const data=db();const el=document.getElementById('book-list-admin');if(!el)return;
   el.innerHTML=data.books.map(b=>{const f=b.units.filter(u=>u.sentences.length>0).length;return`<div style="display:flex;align-items:center;gap:8px;padding:8px;background:#faf8ff;border-radius:8px;border:1px solid var(--border)"><div style="flex:1"><div style="font-size:13px;font-weight:700">${b.name}</div><div style="font-size:11px;color:var(--text2)">${f}/20 유닛 입력됨</div></div><button class="btn btn-danger btn-sm" onclick="delBook(${b.id})">삭제</button></div>`}).join('');
 }
+function renderStudentList(){
+  const el=document.getElementById('student-list');if(!el)return;
+  const data=db();
+  const students=data.users.filter(u=>u.role==='student');
+  if(!students.length){el.innerHTML='<p style="color:var(--text2);font-size:13px">등록된 학생이 없어요.</p>';return}
+  el.innerHTML=students.map(s=>{
+    const uid=s.uid||s.id;
+    const recs=data.progress.filter(p=>p.userId===uid&&p.isUnitRecord&&p.completed);
+    const avg=recs.length?Math.round(recs.reduce((a,p)=>a+(p.avgScore||0),0)/recs.length):null;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:8px;background:#faf8ff;border-radius:8px;border:1px solid var(--border);margin-bottom:6px">
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:700">${s.name||s.id} <span style="color:var(--text2);font-weight:400">(${s.id})</span></div>
+        <div style="font-size:11px;color:var(--text2)">완료 유닛 ${recs.length}개${avg!==null?' · 평균 '+avg+'점':''}</div>
+      </div>
+      <button class="btn btn-danger btn-sm" onclick="delStudent('${s.id}')">삭제</button>
+    </div>`;
+  }).join('');
+}
+
 function delStudent(id){
   if(!confirm('이 학생을 삭제할까요?'))return;
   const data=db();
+  const target=data.users.find(u=>u.id===id);
+  const uid=target&&(target.uid||target.id);
   data.users=data.users.filter(u=>u.id!==id);
-  data.progress=data.progress.filter(p=>p.userId!==id);
-  data.recordings=(data.recordings||[]).filter(r=>r.userId!==id);
-  saveDB(data);renderStudentList();
+  if(uid){
+    data.progress=data.progress.filter(p=>p.userId!==uid);
+    data.recordings=(data.recordings||[]).filter(r=>r.userId!==uid);
+  }
+  saveDB(data);
+  if(uid&&window._firebaseReady){
+    window._db.collection('users').doc(uid).delete().catch(e=>console.error('학생 계정(클라우드) 삭제 실패:',e));
+  }
+  renderStudentList();
 }
 
 async function addStudent(){
@@ -1163,7 +1267,7 @@ async function addStudent(){
   }
 }
 
-function delBook(id){if(!confirm('이 책을 삭제할까요?'))return;const data=db();data.books=data.books.filter(b=>b.id!==id);saveDB(data);renderBookListAdmin()}
+function delBook(id){if(!confirm('이 책을 삭제할까요?'))return;const data=db();data.books=data.books.filter(b=>b.id!==id);saveDB(data);deleteBookFromCloud(id);renderBookListAdmin()}
 
 initDB();
 
@@ -1179,12 +1283,12 @@ function showToast(msg, duration=2500){
 function getXP(){
   const data=db();
   const prog=data.progress||[];
-  return prog.filter(p=>p.userId===curUser?.id&&p.isUnitRecord&&p.completed).reduce((s,p)=>s+(p.avgScore||0),0);
+  return prog.filter(p=>p.userId===(curUser?.uid||curUser?.id)&&p.isUnitRecord&&p.completed).reduce((s,p)=>s+(p.avgScore||0),0);
 }
 
 function getStreak(){
   const data=db();
-  const prog=(data.progress||[]).filter(p=>p.userId===curUser?.id&&p.completedAt);
+  const prog=(data.progress||[]).filter(p=>p.userId===(curUser?.uid||curUser?.id)&&p.completedAt);
   if(!prog.length)return 0;
   prog.sort((a,b)=>new Date(b.completedAt)-new Date(a.completedAt));
   let streak=1,prev=new Date(prog[0].completedAt);
@@ -1198,7 +1302,7 @@ function getStreak(){
 
 function getWrongSentences(){
   const data=db();
-  const prog=(data.progress||[]).filter(p=>p.userId===curUser?.id&&p.corrections&&p.corrections.length>0);
+  const prog=(data.progress||[]).filter(p=>p.userId===(curUser?.uid||curUser?.id)&&p.corrections&&p.corrections.length>0);
   return prog.flatMap(p=>(p.corrections||[]).map(c=>({...c,unit:p.unit,book:p.bookId||p.bookName||p.bookNum})));
 }
 
